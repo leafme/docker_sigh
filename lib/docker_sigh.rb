@@ -17,7 +17,7 @@ module DockerSigh
     dockerfile_template = Util::template_url(opts)
     dockerfile = dockerfile_template.gsub("Dockerfile.template.erb", "Dockerfile")
 
-    namespace :docker_sighs do
+    namespace :ds do
       task :template do
         Util::validate_opts(opts)
         Util::validate_repo(opts)
@@ -35,16 +35,16 @@ module DockerSigh
         LOGGER.debug "Beginning 'build' task."
         Dir.chdir(opts[:repository_root]) do
           name = opts[:container_name]
-          hash = Util::repo_current_commit(opts)
-          branch = Util::tag_from_branch_name(opts)
 
           ret = sh "docker build -t '#{name}:working' ."
           raise "failed to build" unless ret
 
-          ret = sh "docker tag --force #{name}:working #{name}:#{hash}"
-          raise "failed to tag with hash" unless ret
-          ret = sh "docker tag --force #{name}:working #{name}:#{branch}"
-          raise "failed to tag with branch" unless ret
+          [ Util::repo_current_commit(opts),
+              Util::tag_from_branch_name(opts),
+              Util::repo_current_tags(opts) ].flatten.each do |tag|
+            ret = sh "docker tag --force #{name}:working #{name}:#{tag}"
+            raise "failed to tag with '#{tag}'" unless ret
+          end
 
           ret = sh "docker rmi #{name}:working"
           raise "failed to rmi working tag" unless ret
@@ -114,9 +114,8 @@ module DockerSigh
 
       gitignore = File.join(opts[:repository_root], ".gitignore")
       raise "'#{gitignore}' must exist." unless File.exist?(gitignore)
-      has_ignore = false
-      File.open(gitignore).each(sep="\n") { |l| has_ignore ||= (l == "/Dockerfile" || l == "Dockerfile") }
-      raise "The repo's .gitignore must ignore the Dockerfile." unless has_ignore
+      system "grep -e 'Dockerfile\|/Dockerfile' #{gitignore}"
+      raise "The repo's .gitignore must ignore the Dockerfile." unless $?
 
       raise "The repo must be clean (no outstanding changes)." unless clean_git_root?(opts)
     end
@@ -148,6 +147,10 @@ module DockerSigh
       hash = `git rev-parse --verify HEAD`.strip
       raise "git failed to get hash" unless $? == 0
       hash
+    end
+    def self.repo_current_tags(opts)
+      LOGGER.warn "Tags are not currently replicated into the Docker repository. Be advised when using release tags."
+      []
     end
 
     def self.from_directive_parent_tag(opts)
@@ -194,7 +197,7 @@ module DockerSigh
       if host
         raise "host not supported yet"
       else
-        "#{parent_container_name}:#{parent_tag}"
+        "FROM #{parent_container_name}:#{parent_tag}"
       end
     end
   end
