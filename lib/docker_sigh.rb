@@ -66,14 +66,14 @@ module DockerSigh
         LOGGER.debug "Beginning 'push' task."
         Dir.chdir(opts[:repository_root]) do
           name = opts[:container_name]
-          hash = Util::repo_current_commit(opts)
-          branch = Util::tag_from_branch_name(opts)
+          
+          [ Util::repo_current_commit(opts),
+              Util::tag_from_branch_name(opts),
+              Util::repo_current_tags(opts) ].flatten.each do |tag|
 
-          ret = sh "docker push #{name}:#{branch}"
-          raise "failed to push with branch tag" unless ret
-          ret = sh "docker push #{name}:#{hash}"
-          raise "failed to push with hash tag" unless ret
-
+            ret = sh "docker push #{name}:#{tag}"
+            raise "failed to push with tag '#{tag}'" unless ret
+          end
         end
         LOGGER.debug "Ending 'push' task."
       end
